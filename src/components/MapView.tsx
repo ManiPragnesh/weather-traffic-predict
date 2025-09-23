@@ -1,0 +1,275 @@
+import React, { useEffect, useRef, useState } from 'react';
+import mapboxgl from 'mapbox-gl';
+import 'mapbox-gl/dist/mapbox-gl.css';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Navigation, Locate, Layers, Menu, Search, Clock, MapPin } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+interface MapViewProps {
+  mapboxToken?: string;
+}
+
+const MapView = ({ mapboxToken = 'YOUR_MAPBOX_TOKEN' }: MapViewProps) => {
+  const mapContainer = useRef<HTMLDivElement>(null);
+  const map = useRef<mapboxgl.Map | null>(null);
+  const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
+  const [isPanelOpen, setIsPanelOpen] = useState(true);
+  const [searchOrigin, setSearchOrigin] = useState('');
+  const [searchDestination, setSearchDestination] = useState('');
+  const [isRoutingMode, setIsRoutingMode] = useState(false);
+  const [currentWeather, setCurrentWeather] = useState({
+    temp: 22,
+    condition: 'Rain',
+    humidity: 78,
+    visibility: 4.2
+  });
+
+  // Sample traffic data
+  const trafficPoints = [
+    { id: 1, coords: [-122.4194, 37.7749], congestion: 'high', name: 'Downtown SF' },
+    { id: 2, coords: [-122.4094, 37.7849], congestion: 'medium', name: 'Mission Bay' },
+    { id: 3, coords: [-122.3994, 37.7949], congestion: 'low', name: 'SOMA District' },
+  ];
+
+  useEffect(() => {
+    if (!mapContainer.current) return;
+
+    // Initialize map
+    mapboxgl.accessToken = mapboxToken;
+    
+    map.current = new mapboxgl.Map({
+      container: mapContainer.current,
+      style: 'mapbox://styles/mapbox/streets-v12',
+      center: [-122.4194, 37.7749], // San Francisco
+      zoom: 12,
+    });
+
+    // Add navigation controls
+    map.current.addControl(new mapboxgl.NavigationControl(), 'bottom-right');
+
+    // Get user location
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const coords: [number, number] = [
+            position.coords.longitude,
+            position.coords.latitude
+          ];
+          setUserLocation(coords);
+          
+          // Add user location marker
+          new mapboxgl.Marker({ color: '#3B82F6' })
+            .setLngLat(coords)
+            .addTo(map.current!);
+          
+          // Center map on user location
+          map.current?.setCenter(coords);
+        },
+        (error) => {
+          console.log('Location access denied:', error);
+        }
+      );
+    }
+
+    // Add traffic points
+    map.current.on('load', () => {
+      trafficPoints.forEach((point) => {
+        const color = point.congestion === 'high' ? '#EF4444' : 
+                     point.congestion === 'medium' ? '#F59E0B' : '#10B981';
+        
+        new mapboxgl.Marker({ color })
+          .setLngLat(point.coords as [number, number])
+          .setPopup(new mapboxgl.Popup().setText(`${point.name} - ${point.congestion} traffic`))
+          .addTo(map.current!);
+      });
+    });
+
+    return () => {
+      map.current?.remove();
+    };
+  }, [mapboxToken]);
+
+  const handleCurrentLocation = () => {
+    if (userLocation && map.current) {
+      map.current.flyTo({ center: userLocation, zoom: 15 });
+    }
+  };
+
+  const toggleRouting = () => {
+    setIsRoutingMode(!isRoutingMode);
+    if (!isRoutingMode) {
+      setIsPanelOpen(true);
+    }
+  };
+
+  return (
+    <div className="relative w-full h-screen overflow-hidden">
+      {/* Map Container */}
+      <div ref={mapContainer} className="absolute inset-0" />
+      
+      {/* Search Bar Overlay */}
+      <div className="absolute top-4 left-4 right-4 z-10 max-w-md mx-auto">
+        <Card className="p-2 backdrop-blur-sm bg-background/95 border shadow-lg">
+          {!isRoutingMode ? (
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setIsPanelOpen(!isPanelOpen)}>
+                <Menu className="h-4 w-4" />
+              </Button>
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input 
+                  placeholder="Search for places..." 
+                  className="pl-10 border-0 focus-visible:ring-0"
+                  onClick={toggleRouting}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="sm" onClick={toggleRouting}>
+                  ←
+                </Button>
+                <span className="text-sm font-medium">Directions</span>
+              </div>
+              <div className="space-y-2 pl-8">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-primary"></div>
+                  <Input 
+                    placeholder="Choose starting point" 
+                    value={searchOrigin}
+                    onChange={(e) => setSearchOrigin(e.target.value)}
+                    className="border-0 focus-visible:ring-0"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-destructive" />
+                  <Input 
+                    placeholder="Choose destination" 
+                    value={searchDestination}
+                    onChange={(e) => setSearchDestination(e.target.value)}
+                    className="border-0 focus-visible:ring-0"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* Side Panel */}
+      <div className={cn(
+        "absolute left-0 top-0 bottom-0 z-20 w-80 bg-background border-r shadow-lg transition-transform duration-300",
+        isPanelOpen && isRoutingMode ? "translate-x-0" : "-translate-x-full"
+      )}>
+        <div className="p-4 border-b">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-semibold">Route Options</h3>
+            <Button variant="ghost" size="sm" onClick={() => setIsPanelOpen(false)}>
+              ×
+            </Button>
+          </div>
+        </div>
+        
+        <div className="p-4 space-y-4">
+          {/* Route Cards */}
+          <Card className="p-3 cursor-pointer hover:bg-muted/50 border-primary">
+            <div className="flex justify-between items-start mb-2">
+              <Badge variant="default">Fastest</Badge>
+              <span className="text-lg font-semibold text-primary">18 min</span>
+            </div>
+            <p className="text-sm text-muted-foreground mb-1">Via Highway 101 North</p>
+            <div className="flex items-center gap-4 text-xs text-muted-foreground">
+              <span>8.2 km</span>
+              <span className="flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                Moderate traffic
+              </span>
+            </div>
+          </Card>
+
+          <Card className="p-3 cursor-pointer hover:bg-muted/50">
+            <div className="flex justify-between items-start mb-2">
+              <Badge variant="secondary">Alternative</Badge>
+              <span className="text-lg font-semibold">23 min</span>
+            </div>
+            <p className="text-sm text-muted-foreground mb-1">Via Downtown Main St</p>
+            <div className="flex items-center gap-4 text-xs text-muted-foreground">
+              <span>7.1 km</span>
+              <span className="flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                Heavy traffic
+              </span>
+            </div>
+          </Card>
+
+          {/* Weather Impact */}
+          <Card className="p-3 bg-blue-50 dark:bg-blue-950">
+            <h4 className="font-medium text-sm mb-2">Weather Impact</h4>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Condition:</span>
+                <span>{currentWeather.condition}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Temperature:</span>
+                <span>{currentWeather.temp}°C</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Visibility:</span>
+                <span>{currentWeather.visibility} km</span>
+              </div>
+            </div>
+            <Badge variant="destructive" className="mt-2 text-xs">
+              +5 min delay expected
+            </Badge>
+          </Card>
+        </div>
+      </div>
+
+      {/* Floating Action Buttons */}
+      <div className="absolute bottom-6 right-6 z-10 space-y-2">
+        <Button
+          size="sm"
+          variant="secondary"
+          className="w-12 h-12 rounded-full shadow-lg"
+          onClick={handleCurrentLocation}
+        >
+          <Locate className="h-4 w-4" />
+        </Button>
+        <Button
+          size="sm" 
+          variant="secondary"
+          className="w-12 h-12 rounded-full shadow-lg"
+        >
+          <Layers className="h-4 w-4" />
+        </Button>
+        <Button
+          size="sm"
+          className="w-12 h-12 rounded-full shadow-lg"
+          onClick={toggleRouting}
+        >
+          <Navigation className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {/* Weather Overlay - Top Right */}
+      <Card className="absolute top-4 right-4 z-10 p-3 backdrop-blur-sm bg-background/95">
+        <div className="flex items-center gap-2">
+          <div className="text-right">
+            <div className="text-lg font-semibold">{currentWeather.temp}°C</div>
+            <div className="text-xs text-muted-foreground">{currentWeather.condition}</div>
+          </div>
+          <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center">
+            🌧️
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+};
+
+export default MapView;
