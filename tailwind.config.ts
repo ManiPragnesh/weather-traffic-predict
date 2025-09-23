@@ -47,6 +47,18 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        traffic: {
+          low: "hsl(var(--traffic-low))",
+          medium: "hsl(var(--traffic-medium))",
+          high: "hsl(var(--traffic-high))",
+          severe: "hsl(var(--traffic-severe))",
+        },
+        weather: {
+          clear: "hsl(var(--weather-clear))",
+          cloudy: "hsl(var(--weather-cloudy))",
+          rain: "hsl(var(--weather-rain))",
+          storm: "hsl(var(--weather-storm))",
+        },
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",
           foreground: "hsl(var(--sidebar-foreground))",
