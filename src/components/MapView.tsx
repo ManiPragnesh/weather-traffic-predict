@@ -5,8 +5,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Navigation, Locate, Layers, Menu, Search, Clock, MapPin } from 'lucide-react';
+import { Navigation, Locate, Layers, Menu, Search, Clock, MapPin, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
+import PredictionCard from './PredictionCard';
 
 interface MapViewProps {
   mapboxToken?: string;
@@ -20,6 +23,9 @@ const MapView = ({ mapboxToken = 'YOUR_MAPBOX_TOKEN' }: MapViewProps) => {
   const [searchOrigin, setSearchOrigin] = useState('');
   const [searchDestination, setSearchDestination] = useState('');
   const [isRoutingMode, setIsRoutingMode] = useState(false);
+  const [isLoadingPrediction, setIsLoadingPrediction] = useState(false);
+  const [aiPrediction, setAiPrediction] = useState<any>(null);
+  const { toast } = useToast();
   const [currentWeather, setCurrentWeather] = useState({
     temp: 22,
     condition: 'Rain',
@@ -105,6 +111,46 @@ const MapView = ({ mapboxToken = 'YOUR_MAPBOX_TOKEN' }: MapViewProps) => {
     }
   };
 
+  const getPrediction = async () => {
+    if (!searchOrigin || !searchDestination) {
+      toast({
+        title: "Missing Information",
+        description: "Please enter both origin and destination",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsLoadingPrediction(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('traffic-prediction', {
+        body: { 
+          origin: searchOrigin, 
+          destination: searchDestination,
+          currentTraffic: 'moderate',
+          weather: currentWeather
+        }
+      });
+
+      if (error) throw error;
+      
+      setAiPrediction(data);
+      toast({
+        title: "AI Prediction Ready",
+        description: data.analysis || "Route analysis complete",
+      });
+    } catch (error) {
+      console.error('Prediction error:', error);
+      toast({
+        title: "Prediction Failed",
+        description: "Unable to get AI prediction",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingPrediction(false);
+    }
+  };
+
   return (
     <div className="relative w-full h-screen overflow-hidden">
       {/* Map Container */}
@@ -175,6 +221,26 @@ const MapView = ({ mapboxToken = 'YOUR_MAPBOX_TOKEN' }: MapViewProps) => {
         </div>
         
         <div className="p-4 space-y-4">
+          {/* AI Prediction Button */}
+          <Button 
+            className="w-full" 
+            onClick={getPrediction}
+            disabled={isLoadingPrediction || !searchOrigin || !searchDestination}
+          >
+            <Sparkles className="h-4 w-4 mr-2" />
+            {isLoadingPrediction ? 'Analyzing with AI...' : 'Get AI Prediction'}
+          </Button>
+
+          {/* AI Prediction Card */}
+          {aiPrediction && (
+            <PredictionCard 
+              predictedDelay={aiPrediction.predictedDelay}
+              confidence={aiPrediction.confidence}
+              alternativeRoute={aiPrediction.alternativeRoute}
+              lastUpdated="just now"
+            />
+          )}
+
           {/* Route Cards */}
           <Card className="p-3 cursor-pointer hover:bg-muted/50 border-primary">
             <div className="flex justify-between items-start mb-2">

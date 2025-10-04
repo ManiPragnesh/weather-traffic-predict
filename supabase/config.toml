@@ -1,0 +1,4 @@
+project_id = "kudriizxzrrrzujenwpb"
+
+[functions.traffic-prediction]
+verify_jwt = false
