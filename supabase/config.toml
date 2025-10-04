@@ -2,3 +2,6 @@ project_id = "kudriizxzrrrzujenwpb"
 
 [functions.traffic-prediction]
 verify_jwt = false
+
+[functions.weather-prediction]
+verify_jwt = false

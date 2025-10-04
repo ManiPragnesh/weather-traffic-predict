@@ -24,7 +24,9 @@ const MapView = ({ mapboxToken = 'YOUR_MAPBOX_TOKEN' }: MapViewProps) => {
   const [searchDestination, setSearchDestination] = useState('');
   const [isRoutingMode, setIsRoutingMode] = useState(false);
   const [isLoadingPrediction, setIsLoadingPrediction] = useState(false);
+  const [isLoadingWeather, setIsLoadingWeather] = useState(false);
   const [aiPrediction, setAiPrediction] = useState<any>(null);
+  const [weatherPrediction, setWeatherPrediction] = useState<any>(null);
   const { toast } = useToast();
   const [currentWeather, setCurrentWeather] = useState({
     temp: 22,
@@ -108,6 +110,42 @@ const MapView = ({ mapboxToken = 'YOUR_MAPBOX_TOKEN' }: MapViewProps) => {
     setIsRoutingMode(!isRoutingMode);
     if (!isRoutingMode) {
       setIsPanelOpen(true);
+    }
+  };
+
+  const getWeatherPrediction = async () => {
+    setIsLoadingWeather(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('weather-prediction', {
+        body: { 
+          lat: userLocation?.[1] || 37.7749,
+          lon: userLocation?.[0] || -122.4194
+        }
+      });
+
+      if (error) throw error;
+      
+      setWeatherPrediction(data);
+      setCurrentWeather({
+        temp: data.current.temp,
+        condition: data.current.condition,
+        humidity: data.current.humidity,
+        visibility: data.current.visibility
+      });
+      
+      toast({
+        title: "Weather Prediction Ready",
+        description: data.analysis || "Weather analysis complete",
+      });
+    } catch (error) {
+      console.error('Weather prediction error:', error);
+      toast({
+        title: "Weather Prediction Failed",
+        description: "Unable to get weather prediction",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingWeather(false);
     }
   };
 
@@ -323,15 +361,60 @@ const MapView = ({ mapboxToken = 'YOUR_MAPBOX_TOKEN' }: MapViewProps) => {
       </div>
 
       {/* Weather Overlay - Top Right */}
-      <Card className="absolute top-4 right-4 z-10 p-3 backdrop-blur-sm bg-background/95">
-        <div className="flex items-center gap-2">
-          <div className="text-right">
-            <div className="text-lg font-semibold">{currentWeather.temp}°C</div>
-            <div className="text-xs text-muted-foreground">{currentWeather.condition}</div>
+      <Card className="absolute top-4 right-4 z-10 backdrop-blur-sm bg-background/95 max-w-xs">
+        <div className="p-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="text-right">
+              <div className="text-lg font-semibold">{currentWeather.temp}°C</div>
+              <div className="text-xs text-muted-foreground">{currentWeather.condition}</div>
+            </div>
+            <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center">
+              🌧️
+            </div>
           </div>
-          <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center">
-            🌧️
-          </div>
+          
+          <Button 
+            size="sm" 
+            variant="outline" 
+            className="w-full"
+            onClick={getWeatherPrediction}
+            disabled={isLoadingWeather}
+          >
+            <Sparkles className="h-3 w-3 mr-2" />
+            {isLoadingWeather ? 'Analyzing...' : 'AI Weather Forecast'}
+          </Button>
+
+          {weatherPrediction && (
+            <div className="space-y-2 pt-2 border-t">
+              <div className="text-xs space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Humidity:</span>
+                  <span>{weatherPrediction.current.humidity}%</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Visibility:</span>
+                  <span>{weatherPrediction.current.visibility} km</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Wind:</span>
+                  <span>{weatherPrediction.current.windSpeed} m/s</span>
+                </div>
+              </div>
+              
+              {weatherPrediction.trafficImpact && (
+                <Badge 
+                  variant={weatherPrediction.trafficImpact.severity === 'high' ? 'destructive' : 'secondary'}
+                  className="w-full justify-center text-xs"
+                >
+                  Traffic Impact: +{weatherPrediction.trafficImpact.expectedDelay} min
+                </Badge>
+              )}
+              
+              <p className="text-xs text-muted-foreground italic">
+                {weatherPrediction.trafficImpact?.advice}
+              </p>
+            </div>
+          )}
         </div>
       </Card>
     </div>
