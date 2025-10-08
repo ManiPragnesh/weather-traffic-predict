@@ -15,7 +15,7 @@ interface MapViewProps {
   mapboxToken?: string;
 }
 
-const MapView = ({ mapboxToken = 'YOUR_MAPBOX_TOKEN' }: MapViewProps) => {
+const MapView = ({ mapboxToken }: MapViewProps) => {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
@@ -27,6 +27,8 @@ const MapView = ({ mapboxToken = 'YOUR_MAPBOX_TOKEN' }: MapViewProps) => {
   const [isLoadingWeather, setIsLoadingWeather] = useState(false);
   const [aiPrediction, setAiPrediction] = useState<any>(null);
   const [weatherPrediction, setWeatherPrediction] = useState<any>(null);
+  const [token, setToken] = useState(() => localStorage.getItem('mapbox_token') || '');
+  const [showTokenInput, setShowTokenInput] = useState(!token);
   const { toast } = useToast();
   const [currentWeather, setCurrentWeather] = useState({
     temp: 22,
@@ -42,11 +44,19 @@ const MapView = ({ mapboxToken = 'YOUR_MAPBOX_TOKEN' }: MapViewProps) => {
     { id: 3, coords: [-122.3994, 37.7949], congestion: 'low', name: 'SOMA District' },
   ];
 
+  const handleSaveToken = () => {
+    if (token) {
+      localStorage.setItem('mapbox_token', token);
+      setShowTokenInput(false);
+      window.location.reload(); // Reload to initialize map with token
+    }
+  };
+
   useEffect(() => {
-    if (!mapContainer.current) return;
+    if (!mapContainer.current || !token) return;
 
     // Initialize map
-    mapboxgl.accessToken = mapboxToken;
+    mapboxgl.accessToken = token;
     
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
@@ -98,7 +108,7 @@ const MapView = ({ mapboxToken = 'YOUR_MAPBOX_TOKEN' }: MapViewProps) => {
     return () => {
       map.current?.remove();
     };
-  }, [mapboxToken]);
+  }, [token]);
 
   const handleCurrentLocation = () => {
     if (userLocation && map.current) {
@@ -193,6 +203,28 @@ const MapView = ({ mapboxToken = 'YOUR_MAPBOX_TOKEN' }: MapViewProps) => {
     <div className="relative w-full h-screen overflow-hidden">
       {/* Map Container */}
       <div ref={mapContainer} className="absolute inset-0" />
+      
+      {/* Mapbox Token Input */}
+      {showTokenInput && (
+        <Card className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 p-6 w-96">
+          <h3 className="text-lg font-semibold mb-4">Enter Mapbox Token</h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            Get your free token from{' '}
+            <a href="https://mapbox.com" target="_blank" rel="noopener noreferrer" className="text-primary underline">
+              mapbox.com
+            </a>
+          </p>
+          <Input
+            placeholder="pk.ey..."
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            className="mb-4"
+          />
+          <Button onClick={handleSaveToken} className="w-full">
+            Save & Load Map
+          </Button>
+        </Card>
+      )}
       
       {/* Search Bar Overlay */}
       <div className="absolute top-4 left-4 right-4 z-10 max-w-md mx-auto">
