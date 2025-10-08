@@ -29,6 +29,7 @@ const MapView = ({ mapboxToken }: MapViewProps) => {
   const [weatherPrediction, setWeatherPrediction] = useState<any>(null);
   const [token, setToken] = useState(() => localStorage.getItem('mapbox_token') || '');
   const [showTokenInput, setShowTokenInput] = useState(!token);
+  const [routeCoordinates, setRouteCoordinates] = useState<any>(null);
   const { toast } = useToast();
   const [currentWeather, setCurrentWeather] = useState({
     temp: 22,
@@ -159,6 +160,99 @@ const MapView = ({ mapboxToken }: MapViewProps) => {
     }
   };
 
+  const fetchAndDisplayRoute = async (origin: string, destination: string) => {
+    try {
+      // Geocode origin and destination
+      const originRes = await fetch(
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(origin)}.json?access_token=${token}`
+      );
+      const originData = await originRes.json();
+      
+      const destRes = await fetch(
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(destination)}.json?access_token=${token}`
+      );
+      const destData = await destRes.json();
+
+      if (!originData.features?.length || !destData.features?.length) {
+        throw new Error('Location not found');
+      }
+
+      const originCoords = originData.features[0].center;
+      const destCoords = destData.features[0].center;
+
+      // Fetch route
+      const routeRes = await fetch(
+        `https://api.mapbox.com/directions/v5/mapbox/driving/${originCoords[0]},${originCoords[1]};${destCoords[0]},${destCoords[1]}?geometries=geojson&access_token=${token}`
+      );
+      const routeData = await routeRes.json();
+
+      if (routeData.routes?.length) {
+        const route = routeData.routes[0];
+        setRouteCoordinates(route.geometry);
+
+        // Remove existing route and markers
+        if (map.current?.getSource('route')) {
+          map.current.removeLayer('route');
+          map.current.removeSource('route');
+        }
+
+        // Add route to map
+        map.current?.addSource('route', {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            properties: {},
+            geometry: route.geometry
+          }
+        });
+
+        map.current?.addLayer({
+          id: 'route',
+          type: 'line',
+          source: 'route',
+          layout: {
+            'line-join': 'round',
+            'line-cap': 'round'
+          },
+          paint: {
+            'line-color': '#3B82F6',
+            'line-width': 5,
+            'line-opacity': 0.8
+          }
+        });
+
+        // Add origin marker
+        new mapboxgl.Marker({ color: '#10B981' })
+          .setLngLat(originCoords)
+          .setPopup(new mapboxgl.Popup().setText(origin))
+          .addTo(map.current!);
+
+        // Add destination marker
+        new mapboxgl.Marker({ color: '#EF4444' })
+          .setLngLat(destCoords)
+          .setPopup(new mapboxgl.Popup().setText(destination))
+          .addTo(map.current!);
+
+        // Fit map to route bounds
+        const coordinates = route.geometry.coordinates;
+        const bounds = coordinates.reduce((bounds: any, coord: any) => {
+          return bounds.extend(coord);
+        }, new mapboxgl.LngLatBounds(coordinates[0], coordinates[0]));
+
+        map.current?.fitBounds(bounds, {
+          padding: 100
+        });
+      }
+    } catch (error) {
+      console.error('Route error:', error);
+      toast({
+        title: "Route Error",
+        description: "Unable to display route",
+        variant: "destructive",
+      });
+    }
+  };
+
   const getPrediction = async () => {
     if (!searchOrigin || !searchDestination) {
       toast({
@@ -171,6 +265,10 @@ const MapView = ({ mapboxToken }: MapViewProps) => {
 
     setIsLoadingPrediction(true);
     try {
+      // Fetch and display route
+      await fetchAndDisplayRoute(searchOrigin, searchDestination);
+
+      // Get AI prediction
       const { data, error } = await supabase.functions.invoke('traffic-prediction', {
         body: { 
           origin: searchOrigin, 
