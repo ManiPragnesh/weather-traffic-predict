@@ -186,18 +186,30 @@ const MapView = ({ mapboxToken }: MapViewProps) => {
       );
       const routeData = await routeRes.json();
 
+      if (routeData.code !== 'Ok') {
+        throw new Error(routeData.message || 'Route not found');
+      }
+
       if (routeData.routes?.length) {
         const route = routeData.routes[0];
         setRouteCoordinates(route.geometry);
 
-        // Remove existing route and markers
-        if (map.current?.getSource('route')) {
+        // Wait for map to be ready
+        if (!map.current) return;
+
+        // Remove existing route and markers if they exist
+        if (map.current.getLayer('route')) {
           map.current.removeLayer('route');
+        }
+        if (map.current.getLayer('route-outline')) {
+          map.current.removeLayer('route-outline');
+        }
+        if (map.current.getSource('route')) {
           map.current.removeSource('route');
         }
 
-        // Add route to map
-        map.current?.addSource('route', {
+        // Add route to map with outline for better visibility
+        map.current.addSource('route', {
           type: 'geojson',
           data: {
             type: 'Feature',
@@ -206,7 +218,24 @@ const MapView = ({ mapboxToken }: MapViewProps) => {
           }
         });
 
-        map.current?.addLayer({
+        // Add outline layer
+        map.current.addLayer({
+          id: 'route-outline',
+          type: 'line',
+          source: 'route',
+          layout: {
+            'line-join': 'round',
+            'line-cap': 'round'
+          },
+          paint: {
+            'line-color': '#1e3a8a',
+            'line-width': 8,
+            'line-opacity': 0.4
+          }
+        });
+
+        // Add main route layer
+        map.current.addLayer({
           id: 'route',
           type: 'line',
           source: 'route',
@@ -216,38 +245,44 @@ const MapView = ({ mapboxToken }: MapViewProps) => {
           },
           paint: {
             'line-color': '#3B82F6',
-            'line-width': 5,
-            'line-opacity': 0.8
+            'line-width': 6,
+            'line-opacity': 1
           }
         });
 
         // Add origin marker
-        new mapboxgl.Marker({ color: '#10B981' })
+        new mapboxgl.Marker({ color: '#10B981', scale: 1.2 })
           .setLngLat(originCoords)
-          .setPopup(new mapboxgl.Popup().setText(origin))
-          .addTo(map.current!);
+          .setPopup(new mapboxgl.Popup().setHTML(`<strong>Origin</strong><br/>${origin}`))
+          .addTo(map.current);
 
         // Add destination marker
-        new mapboxgl.Marker({ color: '#EF4444' })
+        new mapboxgl.Marker({ color: '#EF4444', scale: 1.2 })
           .setLngLat(destCoords)
-          .setPopup(new mapboxgl.Popup().setText(destination))
-          .addTo(map.current!);
+          .setPopup(new mapboxgl.Popup().setHTML(`<strong>Destination</strong><br/>${destination}`))
+          .addTo(map.current);
 
-        // Fit map to route bounds
+        // Fit map to route bounds with animation
         const coordinates = route.geometry.coordinates;
         const bounds = coordinates.reduce((bounds: any, coord: any) => {
           return bounds.extend(coord);
         }, new mapboxgl.LngLatBounds(coordinates[0], coordinates[0]));
 
-        map.current?.fitBounds(bounds, {
-          padding: 100
+        map.current.fitBounds(bounds, {
+          padding: { top: 100, bottom: 100, left: 400, right: 100 },
+          duration: 1500
+        });
+
+        toast({
+          title: "Route Found!",
+          description: `Distance: ${(route.distance / 1000).toFixed(1)} km, Duration: ${Math.round(route.duration / 60)} min`,
         });
       }
     } catch (error) {
       console.error('Route error:', error);
       toast({
         title: "Route Error",
-        description: "Unable to display route",
+        description: error instanceof Error ? error.message : "Unable to display route",
         variant: "destructive",
       });
     }
