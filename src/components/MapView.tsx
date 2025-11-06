@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Navigation, Locate, Layers, Menu, Search, Clock, MapPin, Sparkles } from 'lucide-react';
+import { ScrollArea } from './ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -359,71 +360,51 @@ const MapView = ({ mapboxToken }: MapViewProps) => {
         </Card>
       )}
       
-      {/* Search Bar Overlay */}
+      {/* Search Bar - From/To */}
       <div className="absolute top-4 left-4 right-4 z-10 max-w-md mx-auto">
-        <Card className="p-2 backdrop-blur-sm bg-background/95 border shadow-lg">
-          {!isRoutingMode ? (
+        <Card className="p-4 backdrop-blur-sm bg-background/95 border shadow-lg">
+          <div className="space-y-3">
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setIsPanelOpen(!isPanelOpen)}>
-                <Menu className="h-4 w-4" />
-              </Button>
-              <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input 
-                  placeholder="Search for places..." 
-                  className="pl-10 border-0 focus-visible:ring-0"
-                  onClick={toggleRouting}
-                />
-              </div>
+              <div className="w-3 h-3 rounded-full bg-primary flex-shrink-0"></div>
+              <Input 
+                placeholder="From" 
+                value={searchOrigin}
+                onChange={(e) => setSearchOrigin(e.target.value)}
+                className="border-0 focus-visible:ring-1"
+              />
             </div>
-          ) : (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Button variant="ghost" size="sm" onClick={toggleRouting}>
-                  ←
-                </Button>
-                <span className="text-sm font-medium">Directions</span>
-              </div>
-              <div className="space-y-2 pl-8">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-primary"></div>
-                  <Input 
-                    placeholder="Choose starting point" 
-                    value={searchOrigin}
-                    onChange={(e) => setSearchOrigin(e.target.value)}
-                    className="border-0 focus-visible:ring-0"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-destructive" />
-                  <Input 
-                    placeholder="Choose destination" 
-                    value={searchDestination}
-                    onChange={(e) => setSearchDestination(e.target.value)}
-                    className="border-0 focus-visible:ring-0"
-                  />
-                </div>
-              </div>
+            <div className="flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-destructive flex-shrink-0" />
+              <Input 
+                placeholder="To" 
+                value={searchDestination}
+                onChange={(e) => setSearchDestination(e.target.value)}
+                className="border-0 focus-visible:ring-1"
+              />
             </div>
-          )}
+          </div>
         </Card>
       </div>
 
       {/* Side Panel */}
       <div className={cn(
-        "absolute left-0 top-0 bottom-0 z-20 w-80 bg-background border-r shadow-lg transition-transform duration-300",
-        isPanelOpen && isRoutingMode ? "translate-x-0" : "-translate-x-full"
+        "absolute left-0 top-0 bottom-0 z-20 w-80 bg-background border-r shadow-lg transition-transform duration-300 flex flex-col",
+        searchOrigin && searchDestination ? "translate-x-0" : "-translate-x-full"
       )}>
-        <div className="p-4 border-b">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-semibold">Route Options</h3>
-            <Button variant="ghost" size="sm" onClick={() => setIsPanelOpen(false)}>
+        <div className="p-4 border-b flex-shrink-0">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold">Route Details</h3>
+            <Button variant="ghost" size="sm" onClick={() => {
+              setSearchOrigin('');
+              setSearchDestination('');
+            }}>
               ×
             </Button>
           </div>
         </div>
         
-        <div className="p-4 space-y-4">
+        <ScrollArea className="flex-1">
+          <div className="p-4 space-y-4">
           {/* AI Prediction Button */}
           <Button 
             className="w-full" 
@@ -497,6 +478,7 @@ const MapView = ({ mapboxToken }: MapViewProps) => {
             </Badge>
           </Card>
         </div>
+        </ScrollArea>
       </div>
 
       {/* Floating Action Buttons */}
