@@ -10,7 +10,6 @@ import { ScrollArea } from './ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import PredictionCard from './PredictionCard';
 
 interface MapViewProps {
   mapboxToken?: string;
@@ -31,6 +30,8 @@ const MapView = ({ mapboxToken }: MapViewProps) => {
   const [token, setToken] = useState(() => localStorage.getItem('mapbox_token') || '');
   const [showTokenInput, setShowTokenInput] = useState(!token);
   const [routeCoordinates, setRouteCoordinates] = useState<any>(null);
+  const [alternativeRoute, setAlternativeRoute] = useState<any>(null);
+  const [selectedRoute, setSelectedRoute] = useState<'main' | 'alternative'>('main');
   const { toast } = useToast();
   const [currentWeather, setCurrentWeather] = useState({
     temp: 22,
@@ -161,7 +162,7 @@ const MapView = ({ mapboxToken }: MapViewProps) => {
     }
   };
 
-  const fetchAndDisplayRoute = async (origin: string, destination: string) => {
+  const fetchAndDisplayRoute = async (origin: string, destination: string, showAlternative: boolean = false) => {
     try {
       // Geocode origin and destination
       const originRes = await fetch(
@@ -181,9 +182,9 @@ const MapView = ({ mapboxToken }: MapViewProps) => {
       const originCoords = originData.features[0].center;
       const destCoords = destData.features[0].center;
 
-      // Fetch route
+      // Fetch route with alternatives
       const routeRes = await fetch(
-        `https://api.mapbox.com/directions/v5/mapbox/driving/${originCoords[0]},${originCoords[1]};${destCoords[0]},${destCoords[1]}?geometries=geojson&access_token=${token}`
+        `https://api.mapbox.com/directions/v5/mapbox/driving/${originCoords[0]},${originCoords[1]};${destCoords[0]},${destCoords[1]}?alternatives=true&geometries=geojson&access_token=${token}`
       );
       const routeData = await routeRes.json();
 
@@ -193,23 +194,29 @@ const MapView = ({ mapboxToken }: MapViewProps) => {
 
       if (routeData.routes?.length) {
         const route = routeData.routes[0];
-        setRouteCoordinates(route.geometry);
+        const altRoute = routeData.routes[1];
+        
+        setRouteCoordinates(route);
+        if (altRoute) {
+          setAlternativeRoute(altRoute);
+        }
 
         // Wait for map to be ready
         if (!map.current) return;
 
-        // Remove existing route and markers if they exist
-        if (map.current.getLayer('route')) {
-          map.current.removeLayer('route');
-        }
-        if (map.current.getLayer('route-outline')) {
-          map.current.removeLayer('route-outline');
-        }
-        if (map.current.getSource('route')) {
-          map.current.removeSource('route');
-        }
+        // Remove existing routes
+        ['route', 'route-outline', 'alternative-route', 'alternative-route-outline'].forEach(layer => {
+          if (map.current?.getLayer(layer)) {
+            map.current.removeLayer(layer);
+          }
+        });
+        ['route', 'alternative-route'].forEach(source => {
+          if (map.current?.getSource(source)) {
+            map.current.removeSource(source);
+          }
+        });
 
-        // Add route to map with outline for better visibility
+        // Add main route
         map.current.addSource('route', {
           type: 'geojson',
           data: {
@@ -219,7 +226,6 @@ const MapView = ({ mapboxToken }: MapViewProps) => {
           }
         });
 
-        // Add outline layer
         map.current.addLayer({
           id: 'route-outline',
           type: 'line',
@@ -235,7 +241,6 @@ const MapView = ({ mapboxToken }: MapViewProps) => {
           }
         });
 
-        // Add main route layer
         map.current.addLayer({
           id: 'route',
           type: 'line',
@@ -247,9 +252,52 @@ const MapView = ({ mapboxToken }: MapViewProps) => {
           paint: {
             'line-color': '#3B82F6',
             'line-width': 6,
-            'line-opacity': 1
+            'line-opacity': selectedRoute === 'main' ? 1 : 0.4
           }
         });
+
+        // Add alternative route if available
+        if (altRoute && showAlternative) {
+          map.current.addSource('alternative-route', {
+            type: 'geojson',
+            data: {
+              type: 'Feature',
+              properties: {},
+              geometry: altRoute.geometry
+            }
+          });
+
+          map.current.addLayer({
+            id: 'alternative-route-outline',
+            type: 'line',
+            source: 'alternative-route',
+            layout: {
+              'line-join': 'round',
+              'line-cap': 'round'
+            },
+            paint: {
+              'line-color': '#64748b',
+              'line-width': 8,
+              'line-opacity': 0.3
+            }
+          });
+
+          map.current.addLayer({
+            id: 'alternative-route',
+            type: 'line',
+            source: 'alternative-route',
+            layout: {
+              'line-join': 'round',
+              'line-cap': 'round'
+            },
+            paint: {
+              'line-color': '#94a3b8',
+              'line-width': 6,
+              'line-opacity': selectedRoute === 'alternative' ? 1 : 0.5,
+              'line-dasharray': [2, 2]
+            }
+          });
+        }
 
         // Add origin marker
         new mapboxgl.Marker({ color: '#10B981', scale: 1.2 })
@@ -276,7 +324,9 @@ const MapView = ({ mapboxToken }: MapViewProps) => {
 
         toast({
           title: "Route Found!",
-          description: `Distance: ${(route.distance / 1000).toFixed(1)} km, Duration: ${Math.round(route.duration / 60)} min`,
+          description: altRoute 
+            ? `Main: ${Math.round(route.duration / 60)} min | Alternative: ${Math.round(altRoute.duration / 60)} min`
+            : `Distance: ${(route.distance / 1000).toFixed(1)} km, Duration: ${Math.round(route.duration / 60)} min`,
         });
       }
     } catch (error) {
@@ -286,6 +336,17 @@ const MapView = ({ mapboxToken }: MapViewProps) => {
         description: error instanceof Error ? error.message : "Unable to display route",
         variant: "destructive",
       });
+    }
+  };
+
+  const handleRouteSelect = (routeType: 'main' | 'alternative') => {
+    setSelectedRoute(routeType);
+    if (map.current) {
+      // Update route opacity
+      map.current.setPaintProperty('route', 'line-opacity', routeType === 'main' ? 1 : 0.4);
+      if (map.current.getLayer('alternative-route')) {
+        map.current.setPaintProperty('alternative-route', 'line-opacity', routeType === 'alternative' ? 1 : 0.5);
+      }
     }
   };
 
@@ -301,33 +362,9 @@ const MapView = ({ mapboxToken }: MapViewProps) => {
 
     setIsLoadingPrediction(true);
     try {
-      // Fetch and display route
-      await fetchAndDisplayRoute(searchOrigin, searchDestination);
-
-      // Get AI prediction
-      const { data, error } = await supabase.functions.invoke('traffic-prediction', {
-        body: { 
-          origin: searchOrigin, 
-          destination: searchDestination,
-          currentTraffic: 'moderate',
-          weather: currentWeather
-        }
-      });
-
-      if (error) throw error;
-      
-      setAiPrediction(data);
-      toast({
-        title: "AI Prediction Ready",
-        description: data.analysis || "Route analysis complete",
-      });
+      await fetchAndDisplayRoute(searchOrigin, searchDestination, true);
     } catch (error) {
-      console.error('Prediction error:', error);
-      toast({
-        title: "Prediction Failed",
-        description: "Unable to get AI prediction",
-        variant: "destructive",
-      });
+      console.error('Route error:', error);
     } finally {
       setIsLoadingPrediction(false);
     }
@@ -405,56 +442,66 @@ const MapView = ({ mapboxToken }: MapViewProps) => {
         
         <ScrollArea className="flex-1">
           <div className="p-4 space-y-4">
-          {/* AI Prediction Button */}
+          {/* Find Routes Button */}
           <Button 
             className="w-full" 
             onClick={getPrediction}
             disabled={isLoadingPrediction || !searchOrigin || !searchDestination}
           >
-            <Sparkles className="h-4 w-4 mr-2" />
-            {isLoadingPrediction ? 'Analyzing with AI...' : 'Get AI Prediction'}
+            <Navigation className="h-4 w-4 mr-2" />
+            {isLoadingPrediction ? 'Finding Routes...' : 'Find Routes'}
           </Button>
 
-          {/* AI Prediction Card */}
-          {aiPrediction && (
-            <PredictionCard 
-              predictedDelay={aiPrediction.predictedDelay}
-              confidence={aiPrediction.confidence}
-              alternativeRoute={aiPrediction.alternativeRoute}
-              lastUpdated="just now"
-            />
+          {/* Route Cards */}
+          {routeCoordinates && (
+            <Card 
+              className={cn(
+                "p-3 cursor-pointer hover:bg-muted/50 transition-colors",
+                selectedRoute === 'main' && "border-primary border-2"
+              )}
+              onClick={() => handleRouteSelect('main')}
+            >
+              <div className="flex justify-between items-start mb-2">
+                <Badge variant="default">Main Route</Badge>
+                <span className="text-lg font-semibold text-primary">
+                  {Math.round(routeCoordinates.duration / 60)} min
+                </span>
+              </div>
+              <p className="text-sm text-muted-foreground mb-1">Recommended</p>
+              <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                <span>{(routeCoordinates.distance / 1000).toFixed(1)} km</span>
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  Fastest route
+                </span>
+              </div>
+            </Card>
           )}
 
-          {/* Route Cards */}
-          <Card className="p-3 cursor-pointer hover:bg-muted/50 border-primary">
-            <div className="flex justify-between items-start mb-2">
-              <Badge variant="default">Fastest</Badge>
-              <span className="text-lg font-semibold text-primary">18 min</span>
-            </div>
-            <p className="text-sm text-muted-foreground mb-1">Via Highway 101 North</p>
-            <div className="flex items-center gap-4 text-xs text-muted-foreground">
-              <span>8.2 km</span>
-              <span className="flex items-center gap-1">
-                <Clock className="h-3 w-3" />
-                Moderate traffic
-              </span>
-            </div>
-          </Card>
-
-          <Card className="p-3 cursor-pointer hover:bg-muted/50">
-            <div className="flex justify-between items-start mb-2">
-              <Badge variant="secondary">Alternative</Badge>
-              <span className="text-lg font-semibold">23 min</span>
-            </div>
-            <p className="text-sm text-muted-foreground mb-1">Via Downtown Main St</p>
-            <div className="flex items-center gap-4 text-xs text-muted-foreground">
-              <span>7.1 km</span>
-              <span className="flex items-center gap-1">
-                <Clock className="h-3 w-3" />
-                Heavy traffic
-              </span>
-            </div>
-          </Card>
+          {alternativeRoute && (
+            <Card 
+              className={cn(
+                "p-3 cursor-pointer hover:bg-muted/50 transition-colors",
+                selectedRoute === 'alternative' && "border-primary border-2"
+              )}
+              onClick={() => handleRouteSelect('alternative')}
+            >
+              <div className="flex justify-between items-start mb-2">
+                <Badge variant="secondary">Alternative Route</Badge>
+                <span className="text-lg font-semibold">
+                  {Math.round(alternativeRoute.duration / 60)} min
+                </span>
+              </div>
+              <p className="text-sm text-muted-foreground mb-1">Avoid traffic</p>
+              <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                <span>{(alternativeRoute.distance / 1000).toFixed(1)} km</span>
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  {Math.round((alternativeRoute.duration - routeCoordinates.duration) / 60)} min longer
+                </span>
+              </div>
+            </Card>
+          )}
 
           {/* Weather Impact */}
           <Card className="p-3 bg-blue-50 dark:bg-blue-950">
