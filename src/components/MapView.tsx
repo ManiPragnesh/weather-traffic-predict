@@ -32,6 +32,8 @@ const MapView = ({ mapboxToken }: MapViewProps) => {
   const [routeCoordinates, setRouteCoordinates] = useState<any>(null);
   const [alternativeRoute, setAlternativeRoute] = useState<any>(null);
   const [selectedRoute, setSelectedRoute] = useState<'main' | 'alternative'>('main');
+  const [destinationWeather, setDestinationWeather] = useState<any>(null);
+  const [trafficPrediction, setTrafficPrediction] = useState<any>(null);
   const { toast } = useToast();
   const [currentWeather, setCurrentWeather] = useState({
     temp: 22,
@@ -362,9 +364,67 @@ const MapView = ({ mapboxToken }: MapViewProps) => {
 
     setIsLoadingPrediction(true);
     try {
+      // First geocode destination to get coordinates for weather
+      const destRes = await fetch(
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(searchDestination)}.json?access_token=${token}`
+      );
+      const destData = await destRes.json();
+      
+      if (destData.features?.length) {
+        const destCoords = destData.features[0];
+        
+        // Fetch weather for destination
+        try {
+          const { data: weatherData, error: weatherError } = await supabase.functions.invoke('weather-prediction', {
+            body: { 
+              lat: destCoords.center[1],
+              lon: destCoords.center[0]
+            }
+          });
+          
+          if (!weatherError && weatherData) {
+            setDestinationWeather({
+              location: destCoords.place_name,
+              ...weatherData
+            });
+          }
+        } catch (err) {
+          console.error('Weather fetch error:', err);
+        }
+        
+        // Fetch traffic prediction
+        try {
+          const { data: trafficData, error: trafficError } = await supabase.functions.invoke('traffic-prediction', {
+            body: { 
+              origin: searchOrigin,
+              destination: searchDestination,
+              currentTraffic: 'moderate',
+              weather: destinationWeather?.current || currentWeather
+            }
+          });
+          
+          if (!trafficError && trafficData) {
+            setTrafficPrediction(trafficData);
+          }
+        } catch (err) {
+          console.error('Traffic prediction error:', err);
+        }
+      }
+      
+      // Display routes
       await fetchAndDisplayRoute(searchOrigin, searchDestination, true);
+      
+      toast({
+        title: "Route Analysis Complete",
+        description: "Weather and traffic information loaded",
+      });
     } catch (error) {
       console.error('Route error:', error);
+      toast({
+        title: "Route Error",
+        description: "Unable to complete route analysis",
+        variant: "destructive",
+      });
     } finally {
       setIsLoadingPrediction(false);
     }
@@ -454,28 +514,41 @@ const MapView = ({ mapboxToken }: MapViewProps) => {
 
           {/* Route Cards */}
           {routeCoordinates && (
-            <Card 
-              className={cn(
-                "p-3 cursor-pointer hover:bg-muted/50 transition-colors",
-                selectedRoute === 'main' && "border-primary border-2"
-              )}
-              onClick={() => handleRouteSelect('main')}
-            >
-              <div className="flex justify-between items-start mb-2">
-                <Badge variant="default">Main Route</Badge>
-                <span className="text-lg font-semibold text-primary">
-                  {Math.round(routeCoordinates.duration / 60)} min
-                </span>
-              </div>
-              <p className="text-sm text-muted-foreground mb-1">Recommended</p>
-              <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                <span>{(routeCoordinates.distance / 1000).toFixed(1)} km</span>
-                <span className="flex items-center gap-1">
-                  <Clock className="h-3 w-3" />
-                  Fastest route
-                </span>
-              </div>
-            </Card>
+            <>
+              <Card 
+                className={cn(
+                  "p-3 cursor-pointer hover:bg-muted/50 transition-colors",
+                  selectedRoute === 'main' && "border-primary border-2"
+                )}
+                onClick={() => handleRouteSelect('main')}
+              >
+                <div className="flex justify-between items-start mb-2">
+                  <Badge variant="default">Main Route</Badge>
+                  <span className="text-lg font-semibold text-primary">
+                    {Math.round(routeCoordinates.duration / 60)} min
+                  </span>
+                </div>
+                <p className="text-sm text-muted-foreground mb-1">Recommended fastest route</p>
+                <div className="flex items-center gap-4 text-xs text-muted-foreground mb-2">
+                  <span>{(routeCoordinates.distance / 1000).toFixed(1)} km</span>
+                  <span className="flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    Current traffic
+                  </span>
+                </div>
+                {trafficPrediction && (
+                  <div className="mt-2 pt-2 border-t">
+                    <p className="text-xs font-medium text-primary mb-1">AI Traffic Prediction</p>
+                    <p className="text-xs text-muted-foreground">{trafficPrediction.analysis}</p>
+                    {trafficPrediction.predictedDelay > 0 && (
+                      <Badge variant="destructive" className="mt-1 text-xs">
+                        +{trafficPrediction.predictedDelay} min delay expected
+                      </Badge>
+                    )}
+                  </div>
+                )}
+              </Card>
+            </>
           )}
 
           {alternativeRoute && (
@@ -492,38 +565,54 @@ const MapView = ({ mapboxToken }: MapViewProps) => {
                   {Math.round(alternativeRoute.duration / 60)} min
                 </span>
               </div>
-              <p className="text-sm text-muted-foreground mb-1">Avoid traffic</p>
+              <p className="text-sm text-muted-foreground mb-1">Alternative option</p>
               <div className="flex items-center gap-4 text-xs text-muted-foreground">
                 <span>{(alternativeRoute.distance / 1000).toFixed(1)} km</span>
                 <span className="flex items-center gap-1">
                   <Clock className="h-3 w-3" />
-                  {Math.round((alternativeRoute.duration - routeCoordinates.duration) / 60)} min longer
+                  {Math.abs(Math.round((alternativeRoute.duration - routeCoordinates.duration) / 60))} min {alternativeRoute.duration > routeCoordinates.duration ? 'longer' : 'shorter'}
                 </span>
               </div>
+              {trafficPrediction?.alternativeRoute && (
+                <div className="mt-2 pt-2 border-t">
+                  <p className="text-xs text-muted-foreground">{trafficPrediction.alternativeRoute.reason}</p>
+                </div>
+              )}
             </Card>
           )}
 
-          {/* Weather Impact */}
-          <Card className="p-3 bg-blue-50 dark:bg-blue-950">
-            <h4 className="font-medium text-sm mb-2">Weather Impact</h4>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Condition:</span>
-                <span>{currentWeather.condition}</span>
+          {/* Destination Weather */}
+          {destinationWeather && (
+            <Card className="p-3 bg-blue-50 dark:bg-blue-950">
+              <h4 className="font-medium text-sm mb-2">Weather at Destination</h4>
+              <p className="text-xs text-muted-foreground mb-2">{destinationWeather.location}</p>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Condition:</span>
+                  <span>{destinationWeather.current?.condition || 'Clear'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Temperature:</span>
+                  <span>{destinationWeather.current?.temp || 22}°C</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Visibility:</span>
+                  <span>{destinationWeather.current?.visibility || 10} km</span>
+                </div>
+                {destinationWeather.current?.humidity && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Humidity:</span>
+                    <span>{destinationWeather.current.humidity}%</span>
+                  </div>
+                )}
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Temperature:</span>
-                <span>{currentWeather.temp}°C</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Visibility:</span>
-                <span>{currentWeather.visibility} km</span>
-              </div>
-            </div>
-            <Badge variant="destructive" className="mt-2 text-xs">
-              +5 min delay expected
-            </Badge>
-          </Card>
+              {destinationWeather.analysis && (
+                <p className="text-xs text-muted-foreground mt-2 pt-2 border-t">
+                  {destinationWeather.analysis}
+                </p>
+              )}
+            </Card>
+          )}
         </div>
         </ScrollArea>
       </div>
